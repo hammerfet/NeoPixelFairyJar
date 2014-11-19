@@ -9,7 +9,6 @@
 #define lowBattPin     7
 #define IMUintPin      2
 #define NUMPIXELS      60
-#define FILTERTAPS     100
 
 // Standard Colors
 #define RED            0xFF0000
@@ -25,10 +24,10 @@ extern IMUMotion Motion;
 struct deviceAngle{float hyp, theta;};
 
 // Global variables
-int modeState = 0;
-int framerate = 20;
-float xinc = 0; // wondering x
-float yinc = 3; // wondering y
+int modeState = 0; // state machine variable
+int framerate = 20; // default framerate
+float xinc = 0; // wondering x variable
+float yinc = 3; // wondering y variable
 
 void setup() {
   Serial.begin(9600);
@@ -54,7 +53,7 @@ int draw(struct deviceAngle *angle, int state){
       pixels.clear();
       break;
       
-    case 1:
+    case 1: // Up facing lights
       x = (int)angle->theta;
       printPixel(x, 0, 0x111111);
       printPixel(x, 1, 0x555555);
@@ -64,7 +63,7 @@ int draw(struct deviceAngle *angle, int state){
       printPixel(x, 5, 0x111111);
       break;
       
-    case 2:
+    case 2: // down facing lights
       x = ((int)angle->theta) + 5;
       if(x >= 10) x -= 10;
       printPixel(x, 0, 0x111111);
@@ -75,7 +74,7 @@ int draw(struct deviceAngle *angle, int state){
       printPixel(x, 5, 0x111111);
       break;
       
-    case 3:
+    case 3: // motion fairy
       if(((int)angle->hyp) > 0){
         x = (int)angle->theta;
         y = (int)angle->hyp;
@@ -89,7 +88,6 @@ int draw(struct deviceAngle *angle, int state){
     
     case 4: // wondering fairy
       yinc += ((float)random(-1,2) / 10);
-      Serial.println(yinc);
       xinc += 0.2;
       if(yinc > 5) yinc = 5;
       if(yinc < 1) yinc = 1;
@@ -107,7 +105,7 @@ int draw(struct deviceAngle *angle, int state){
       }
       break;
       
-    case 6: // return to zero state
+    default: // return to zero state
       state = 0;
       break;
   }  
@@ -125,6 +123,7 @@ int IMUangle(struct deviceAngle *buffer, int mode){
   // Vectorise the tilt angle of the jar in polar space
   buffer->hyp = sqrt(square(Motion.z) + square(Motion.x));
   buffer->theta = asin(abs(Motion.z) / buffer->hyp);
+  
   // Determine the angle quadrant to get a 2pi rotation value
   if((Motion.x < 0) && (Motion.z > 0)){  buffer->theta = ((PI*0.5)-buffer->theta) + (PI*0.5);  }
   if((Motion.x < 0) && (Motion.z < 0)){  buffer->theta += PI;}
@@ -147,11 +146,23 @@ int IMUangle(struct deviceAngle *buffer, int mode){
 }
 
 void loop() {
+  // Some inits
+  int oldMode = modeState;
   struct deviceAngle angle = {0,0};
+  
+  // Read the motion data
   readImu();
+  
+  // State machine
   modeState = IMUangle(&angle, modeState);
   if(!digitalRead(lowBattPin)){  modeState = 0;  }
   modeState = draw(&angle, modeState);
+  
+  // Serial Handling, force states and return current state
+  while (Serial.available() > 0) {  modeState = Serial.parseInt(); }
+  if(modeState != oldMode){  Serial.println(modeState); }
+  
+  // Delay for framerate time
   delay(framerate);
 }
 
